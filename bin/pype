@@ -1,0 +1,90 @@
+#!/usr/bin/env python
+#-*- coding: UTF-8 -*-
+import traceback
+import argparse
+import sys
+import re
+
+from code import InteractiveConsole
+
+parser = argparse.ArgumentParser(description='Interactively process files with python')
+parser.add_argument('-i', '--interactive', dest='interactive', action='store_true', help='Use interactive mode.')
+parser.add_argument('code', nargs="?", default=None, help='Apply the python code to every line of input.')
+args = parser.parse_args()
+
+stdincopy = sys.stdin
+stdoutcopy = sys.stdout
+stderrcopy = sys.stderr
+
+class PypeException(Exception):
+    def __init__(self):
+        self.value = sys.exc_info()[1].__class__.__name__ + ': ' + str(sys.exc_info()[1])
+
+    def __str__(self):
+        msg = self.__class__.__name__
+        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1 \2', msg)
+        return re.sub('([a-z0-9])([A-Z])', r'\1 \2', s1).lower()
+
+class InvalidPythonCode(PypeException): pass
+
+def error(exception):
+    stderrcopy.write("Error: "+str(exception))
+    stderrcopy.write('\n')
+
+    stderrcopy.write(exception.value)
+    stderrcopy.write('\n')
+
+def apply_code(python_code):
+    while True:
+        line = stdincopy.readline().strip()
+        if not line:
+            break
+        try:
+            ret = str(eval('line'+python_code))
+        except Exception as exc:
+            raise InvalidPythonCode()
+        stdoutcopy.write(ret)
+        stdoutcopy.write("\n")
+
+class PypeShell(InteractiveConsole):
+    def __init__(self, read_lines, *args, **kw):
+        InteractiveConsole.__init__(self, *args, **kw)
+        self.read_lines = read_lines
+
+    def raw_input(self, banner):
+        line = raw_input(banner)
+        self.read_lines.append(line)
+        return line
+
+def interactive_mode():
+    read_lines = []
+    while True:
+        i = stdincopy.readline().strip()
+        if not i:
+            break
+ 
+        o = i
+        sys.stdin = open('/dev/tty')
+        sys.stdout = open('/dev/tty', 'w')
+        vars = globals()
+        vars.update(locals())
+        shell = PypeShell(read_lines, vars)
+        if read_lines:
+            for line in read_lines:
+                shell.push(line)
+        else:
+            shell.interact("""The current input line available as "i".
+Set the transformed line equal to "o".""")
+
+        stdoutcopy.write(vars['o']+'\n')
+
+if args.code:
+    try:
+        apply_code(args.code)
+    except PypeException as exc:
+        error(exc)
+elif args.interactive:
+    try:
+        interactive_mode()
+    except PypeException as exc:
+        error(exc)
